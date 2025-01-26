@@ -37,8 +37,8 @@ git --version
 Start by cloning the repository to your local machine using Git.
 
 ```bash
-git clone https://github.com/your-username/your-repository.git
-cd your-repository
+git clone https://github.com/loki-smip/earthvake.git
+cd earthvake
 ```
 
 ---
