@@ -1,87 +1,102 @@
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
 import serial
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from collections import deque
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from datetime import datetime
 
-# Serial port configuration
-SERIAL_PORT = "COM5"  # Replace with your COM port
-BAUD_RATE = 115200
+# Configure Serial Communication
+port = "COM5"  # Replace with your port
+baud_rate = 9600
 
-# Graph settings
-GRAPH_WIDTH = 120
-Y_MIN, Y_MAX = -80, 80
-
-# Initialize serial connection
 try:
-    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-    print(f"Connected to {SERIAL_PORT}")
-except Exception as e:
-    print(f"Error connecting to {SERIAL_PORT}: {e}")
-    exit()
+    ser = serial.Serial(port, baud_rate, timeout=1)
+    print(f"Connected to {port}")
+except serial.SerialException as e:
+    print(f"Error connecting to {port}: {e}")
+    ser = None
 
-# Data buffers for x, y, z
-x_data = deque([0] * GRAPH_WIDTH, maxlen=GRAPH_WIDTH)
-y_data = deque([0] * GRAPH_WIDTH, maxlen=GRAPH_WIDTH)
-z_data = deque([0] * GRAPH_WIDTH, maxlen=GRAPH_WIDTH)
+# Initialize Data
+x_data, y_data, z_data, time_data = [], [], [], []
 
-
-def parse_serial_data():
-    """
-    Reads and parses the serial data.
-    Expected format: x=10y=20z=30$
-    """
-    try:
+# Function to Read Data from Serial Port
+def read_serial_data():
+    if ser and ser.in_waiting > 0:
         line = ser.readline().decode('utf-8').strip()
-        if '$' in line:
-            x_start = line.index("x=") + 2
-            y_start = line.index("y=") + 2
-            z_start = line.index("z=") + 2
+        if line.startswith("x=") and "y=" in line and "z=" in line:
+            try:
+                x_val = int(line.split("x=")[1].split("y=")[0].strip())
+                y_val = int(line.split("y=")[1].split("z=")[0].strip())
+                z_val = int(line.split("z=")[1].strip())
+                return x_val, y_val, z_val
+            except ValueError:
+                return None
+    return None
 
-            x_val = int(line[x_start:x_start + 3])
-            y_val = int(line[y_start:y_start + 3])
-            z_val = int(line[z_start:z_start + 3])
-
-            return x_val, y_val, z_val
-    except Exception as e:
-        print(f"Error parsing data: {e}")
-    return None, None, None
-
-
+# Live Graph Update Function
 def update_graph(frame):
-    """
-    Update the graph with new data.
-    """
-    global x_data, y_data, z_data
-
-    x, y, z = parse_serial_data()
-    if x is not None and y is not None and z is not None:
+    data = read_serial_data()
+    if data:
+        x, y, z = data
+        time_data.append(len(time_data))  # Incremental time
         x_data.append(x)
         y_data.append(y)
         z_data.append(z)
 
-    # Clear the plot
-    ax.clear()
+        # Update Graph
+        ax.clear()
+        ax.plot(time_data, x_data, label="X-axis", color="blue")
+        ax.plot(time_data, y_data, label="Y-axis", color="green")
+        ax.plot(time_data, z_data, label="Z-axis", color="red")
+        ax.legend(loc="upper left")
+        ax.set_title("Live Sensor Data")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Value")
+        ax.grid()
 
-    # Plot X, Y, Z
-    ax.plot(range(len(x_data)), x_data, label="X-axis", color="blue")
-    ax.plot(range(len(y_data)), y_data, label="Y-axis", color="green")
-    ax.plot(range(len(z_data)), z_data, label="Z-axis", color="red")
+# Save Graph as Image
+def save_graph():
+    if len(time_data) > 0:
+        filename = f"sensor_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        fig.savefig(filename, dpi=300)
+        messagebox.showinfo("Save Successful", f"Graph saved as {filename}")
+    else:
+        messagebox.showwarning("Save Error", "No data to save!")
 
-    # Graph styling
-    ax.set_ylim(Y_MIN, Y_MAX)
-    ax.set_title("Earthquake Graph")
-    ax.set_xlabel("Time")
-    ax.set_ylabel("Acceleration")
-    ax.legend(loc="upper right")
-    ax.grid(True)
+# Start Live Graph
+def start_live_graph():
+    ani.event_source.start()
 
+# Stop Live Graph
+def stop_live_graph():
+    ani.event_source.stop()
 
-# Setup matplotlib
-fig, ax = plt.subplots(figsize=(10, 6))
-ani = animation.FuncAnimation(fig, update_graph, interval=50)
+# Create Tkinter GUI
+root = tk.Tk()
+root.title("ESP Sensor Data Graph")
 
-# Show the plot
-plt.show()
+# Matplotlib Figure
+fig, ax = plt.subplots(figsize=(8, 5))
+canvas = FigureCanvasTkAgg(fig, master=root)
+canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-# Close serial connection on exit
-ser.close()
+# Buttons
+button_frame = ttk.Frame(root)
+button_frame.pack(side=tk.BOTTOM, pady=10)
+
+start_button = ttk.Button(button_frame, text="Live Graph", command=start_live_graph)
+start_button.grid(row=0, column=0, padx=10)
+
+stop_button = ttk.Button(button_frame, text="Stop", command=stop_live_graph)
+stop_button.grid(row=0, column=1, padx=10)
+
+save_button = ttk.Button(button_frame, text="Save as Image", command=save_graph)
+save_button.grid(row=0, column=2, padx=10)
+
+# Start Animation
+ani = animation.FuncAnimation(fig, update_graph, interval=100)
+
+# Run Tkinter Mainloop
+root.mainloop()
